@@ -3,7 +3,6 @@ import pandas as pd
 from io import BytesIO
 import requests
 from bs4 import BeautifulSoup
-
 # 🔍 Scraper function with error handling
 def scrape_odpc_data():
     url = "https://www.odpc.go.ke/registered-data-handlers/"
@@ -16,7 +15,6 @@ def scrape_odpc_data():
 
         if table is None:
             raise ValueError("Could not find data table on the page.")
-
         headers = [th.text.strip() for th in table.find_all("th")]
         rows = []
         for tr in table.find_all("tr")[1:]:  # Skip header
@@ -25,7 +23,6 @@ def scrape_odpc_data():
                 continue  # skip malformed rows
             row = {headers[i]: cells[i].text.strip() for i in range(len(headers))}
             rows.append(row)
-
         if not rows:
             raise ValueError("No data found in the table.")
 
@@ -111,6 +108,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
