@@ -87,6 +87,7 @@ def main():
 
         # Clean up columns for display
         columns_to_show = ['Provider Name', 'Matched Name', 'TYPE', 'CURRENT STATE', 'REGISTRATION NUMBER', 'COUNTY', 'COUNTRY']
+        st.write("Available columns:", merged_df.columns.tolist())
         result_df = merged_df[columns_to_show]
 
         st.success("✅ Matching complete!")
@@ -108,6 +109,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
