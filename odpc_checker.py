@@ -1,116 +1,183 @@
 import streamlit as st
 import pandas as pd
-from io import BytesIO
 import requests
 from bs4 import BeautifulSoup
-# 🔍 Scraper function with error handling
+from io import BytesIO
+
+# ---------------------------------------------------
+# PAGE CONFIG
+# ---------------------------------------------------
+st.set_page_config(
+    page_title="ODPC Kenya Checker",
+    layout="wide"
+)
+
+# ---------------------------------------------------
+# SCRAPER FUNCTION
+# ---------------------------------------------------
+@st.cache_data(ttl=3600)  # Cache for 1 hour
 def scrape_odpc_data():
     url = "https://www.odpc.go.ke/registered-data-handlers/"
+
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=15)
         response.raise_for_status()
 
         soup = BeautifulSoup(response.content, "html.parser")
         table = soup.find("table")
 
         if table is None:
-            raise ValueError("Could not find data table on the page.")
+            return pd.DataFrame()
+
         headers = [th.text.strip() for th in table.find_all("th")]
         rows = []
-        for tr in table.find_all("tr")[1:]:  # Skip header
+
+        for tr in table.find_all("tr")[1:]:
             cells = tr.find_all("td")
             if len(cells) != len(headers):
-                continue  # skip malformed rows
+                continue
+
             row = {headers[i]: cells[i].text.strip() for i in range(len(headers))}
             rows.append(row)
-        if not rows:
-            raise ValueError("No data found in the table.")
 
-        return rows
+        return pd.DataFrame(rows)
 
-    except requests.exceptions.RequestException as e:
-        st.error(f"Network error: {e}")
-        return []
     except Exception as e:
-        st.error(f"Scraper error: {e}")
-        return []
+        st.error(f"Scraping error: {e}")
+        return pd.DataFrame()
 
-# 🚀 Main Streamlit App
+
+# ---------------------------------------------------
+# MAIN APP
+# ---------------------------------------------------
 def main():
-    st.set_page_config(page_title="ODPC Kenya Checker", layout="wide")
     st.title("📊 ODPC Kenya Data Handler Status Checker")
 
-    # Let user pick case normalization style
-    case_option = st.radio("Change uploaded provider names to:", ("Lowercase", "Uppercase"))
+    case_option = st.radio(
+        "Normalize Provider Names To:",
+        ["Lowercase", "Uppercase"]
+    )
 
-    uploaded_file = st.file_uploader("📁 Upload Excel with 'Provider Name' column", type=["xlsx"])
+    uploaded_file = st.file_uploader(
+        "📁 Upload Excel File (Must contain column: Provider Name)",
+        type=["xlsx"]
+    )
 
-    if uploaded_file:
-        df = pd.read_excel(uploaded_file)
+    if uploaded_file is None:
+        st.info("Please upload an Excel file to begin.")
+        return
 
-        if 'Provider Name' not in df.columns:
-            st.error("❌ Excel must contain a 'Provider Name' column.")
-            return
+    # -----------------------------
+    # READ EXCEL SAFELY
+    # -----------------------------
+    try:
+        df = pd.read_excel(uploaded_file, engine="openpyxl")
+    except Exception as e:
+        st.error(f"Error reading Excel file: {e}")
+        return
 
-        # Normalize based on user selection
-        if case_option == "Lowercase":
-            df['Provider Name Normalized'] = df['Provider Name'].astype(str).str.strip().str.lower()
-        else:
-            df['Provider Name Normalized'] = df['Provider Name'].astype(str).str.strip().str.upper()
+    # Clean column names
+    df.columns = df.columns.str.strip()
 
-        with st.spinner("🔍 Scraping ODPC website..."):
-            odpc_data = scrape_odpc_data()
+    if "Provider Name" not in df.columns:
+        st.error("❌ Excel must contain a column named exactly: 'Provider Name'")
+        st.write("Columns found:", df.columns.tolist())
+        return
 
-        if not odpc_data:
-            st.error("⚠️ Could not retrieve ODPC data.")
-            return
-
-        odpc_df = pd.DataFrame(odpc_data)
-
-        # Normalize ODPC names to match user selection
-        if case_option == "Lowercase":
-            odpc_df['NAME Normalized'] = odpc_df['NAME'].astype(str).str.strip().str.lower()
-        else:
-            odpc_df['NAME Normalized'] = odpc_df['NAME'].astype(str).str.strip().str.upper()
-
-        # Perform merge
-        merged_df = pd.merge(
-            df,
-            odpc_df,
-            left_on='Provider Name Normalized',
-            right_on='NAME Normalized',
-            how='left'
+    # Normalize user data
+    if case_option == "Lowercase":
+        df["provider_normalized"] = (
+            df["Provider Name"].astype(str).str.strip().str.lower()
+        )
+    else:
+        df["provider_normalized"] = (
+            df["Provider Name"].astype(str).str.strip().str.upper()
         )
 
-        # Add "Matched Name" column
-        merged_df['Matched Name'] = merged_df['NAME']
+    # -----------------------------
+    # SCRAPE ODPC
+    # -----------------------------
+    with st.spinner("🔍 Fetching ODPC data..."):
+        odpc_df = scrape_odpc_data()
 
-        # Clean up columns for display
-        columns_to_show = ['Provider Name', 'Matched Name', 'TYPE', 'CURRENT STATE', 'REGISTRATION NUMBER', 'COUNTY', 'COUNTRY']
-        st.write("Available columns:", merged_df.columns.tolist())
-        result_df = merged_df[columns_to_show]
+    if odpc_df.empty:
+        st.error("⚠️ Could not retrieve ODPC data.")
+        return
 
-        st.success("✅ Matching complete!")
-        st.dataframe(result_df)
+    # Clean ODPC columns
+    odpc_df.columns = odpc_df.columns.str.strip()
 
-        # 💾 Download button
-        towrite = BytesIO()
-        result_df.to_excel(towrite, index=False, engine='openpyxl')
-        towrite.seek(0)
+    if "NAME" not in odpc_df.columns:
+        st.error("ODPC website structure changed. 'NAME' column not found.")
+        st.write("Available ODPC columns:", odpc_df.columns.tolist())
+        return
 
-        st.download_button(
-            label="📥 Download Results as Excel",
-            data=towrite,
-            file_name="odpc_provider_results.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    # Normalize ODPC data
+    if case_option == "Lowercase":
+        odpc_df["odpc_normalized"] = (
+            odpc_df["NAME"].astype(str).str.strip().str.lower()
+        )
+    else:
+        odpc_df["odpc_normalized"] = (
+            odpc_df["NAME"].astype(str).str.strip().str.upper()
         )
 
-        st.caption("ℹ️ The tool checks names exactly, but ignores case depending on your selection above.")
+    # -----------------------------
+    # MERGE
+    # -----------------------------
+    merged_df = pd.merge(
+        df,
+        odpc_df,
+        left_on="provider_normalized",
+        right_on="odpc_normalized",
+        how="left"
+    )
 
+    # Add matched column safely
+    merged_df["Matched Name"] = merged_df.get("NAME", None)
+
+    # Columns to show (safe selection)
+    desired_columns = [
+        "Provider Name",
+        "Matched Name",
+        "TYPE",
+        "CURRENT STATE",
+        "REGISTRATION NUMBER",
+        "COUNTY",
+        "COUNTRY",
+    ]
+
+    available_columns = [
+        col for col in desired_columns if col in merged_df.columns
+    ]
+
+    result_df = merged_df[available_columns]
+
+    # -----------------------------
+    # DISPLAY RESULTS
+    # -----------------------------
+    st.success("✅ Matching Complete")
+    st.dataframe(result_df, use_container_width=True)
+
+    # -----------------------------
+    # DOWNLOAD BUTTON
+    # -----------------------------
+    output = BytesIO()
+    result_df.to_excel(output, index=False, engine="openpyxl")
+    output.seek(0)
+
+    st.download_button(
+        label="📥 Download Results as Excel",
+        data=output,
+        file_name="odpc_provider_results.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+    st.caption(
+        "ℹ️ Matching is exact but case-insensitive based on your selection."
+    )
+
+
+# ---------------------------------------------------
 if __name__ == "__main__":
     main()
-
-
-
-
-
