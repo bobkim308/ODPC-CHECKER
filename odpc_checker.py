@@ -141,10 +141,10 @@ def main():
         "Provider Name",
         "Matched Name",
         "TYPE",
-        "CURRENT STATE",
         "REGISTRATION NUMBER",
         "COUNTY",
-        "COUNTRY",
+        "KENYA",
+        "STATUS"
     ]
 
     available_columns = [
