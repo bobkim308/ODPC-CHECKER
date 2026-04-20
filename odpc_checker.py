@@ -13,44 +13,47 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------
-# SCRAPER FUNCTION
+# SCRAPER FUNCTION (FIXED)
 # ---------------------------------------------------
 @st.cache_data(ttl=3600)
 def scrape_odpc_data():
     url = "https://www.odpc.go.ke/registered-data-handlers/"
 
     headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Accept-Language": "en-US,en;q=0.9"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Connection": "keep-alive",
     }
 
     try:
         session = requests.Session()
-        response = session.get(url, headers=headers, timeout=15)
+        response = session.get(url, headers=headers, timeout=20)
+
         response.raise_for_status()
 
-        # Try pandas first (more robust)
-        try:
-            tables = pd.read_html(response.text)
-            return tables[0]
-        except:
-            pass
+        soup = BeautifulSoup(response.text, "html.parser")
 
-        # Fallback to BeautifulSoup
-        soup = BeautifulSoup(response.content, "html.parser")
+        # Try to find table
         table = soup.find("table")
 
         if table is None:
+            st.warning("⚠️ Table not found - website may use dynamic loading.")
             return pd.DataFrame()
 
-        headers = [th.text.strip() for th in table.find_all("th")]
-        rows = []
+        # Extract headers
+        headers = [th.get_text(strip=True) for th in table.find_all("th")]
 
+        rows = []
         for tr in table.find_all("tr")[1:]:
             cells = tr.find_all("td")
             if len(cells) != len(headers):
                 continue
-            row = {headers[i]: cells[i].text.strip() for i in range(len(headers))}
+
+            row = {
+                headers[i]: cells[i].get_text(strip=True)
+                for i in range(len(headers))
+            }
             rows.append(row)
 
         return pd.DataFrame(rows)
@@ -81,7 +84,7 @@ def main():
         return
 
     # -----------------------------
-    # READ EXCEL SAFELY
+    # READ EXCEL
     # -----------------------------
     try:
         df = pd.read_excel(uploaded_file, engine="openpyxl")
@@ -89,51 +92,41 @@ def main():
         st.error(f"Error reading Excel file: {e}")
         return
 
-    # Clean column names
     df.columns = df.columns.str.strip()
 
     if "Provider Name" not in df.columns:
-        st.error("❌ Excel must contain a column named exactly: 'Provider Name'")
+        st.error("❌ Excel must contain 'Provider Name'")
         st.write("Columns found:", df.columns.tolist())
         return
 
     # Normalize user data
     if case_option == "Lowercase":
-        df["provider_normalized"] = (
-            df["Provider Name"].astype(str).str.strip().str.lower()
-        )
+        df["provider_normalized"] = df["Provider Name"].astype(str).str.strip().str.lower()
     else:
-        df["provider_normalized"] = (
-            df["Provider Name"].astype(str).str.strip().str.upper()
-        )
+        df["provider_normalized"] = df["Provider Name"].astype(str).str.strip().str.upper()
 
     # -----------------------------
-    # SCRAPE ODPC
+    # SCRAPE
     # -----------------------------
     with st.spinner("🔍 Fetching ODPC data..."):
         odpc_df = scrape_odpc_data()
 
     if odpc_df.empty:
-        st.error("⚠️ Could not retrieve ODPC data.")
+        st.error("⚠️ Could not retrieve ODPC data. Website structure may have changed.")
         return
 
-    # Clean ODPC columns
     odpc_df.columns = odpc_df.columns.str.strip()
 
     if "NAME" not in odpc_df.columns:
-        st.error("ODPC website structure changed. 'NAME' column not found.")
-        st.write("Available ODPC columns:", odpc_df.columns.tolist())
+        st.error("❌ 'NAME' column missing from ODPC data")
+        st.write("Columns found:", odpc_df.columns.tolist())
         return
 
     # Normalize ODPC data
     if case_option == "Lowercase":
-        odpc_df["odpc_normalized"] = (
-            odpc_df["NAME"].astype(str).str.strip().str.lower()
-        )
+        odpc_df["odpc_normalized"] = odpc_df["NAME"].astype(str).str.strip().str.lower()
     else:
-        odpc_df["odpc_normalized"] = (
-            odpc_df["NAME"].astype(str).str.strip().str.upper()
-        )
+        odpc_df["odpc_normalized"] = odpc_df["NAME"].astype(str).str.strip().str.upper()
 
     # -----------------------------
     # MERGE
@@ -146,10 +139,8 @@ def main():
         how="left"
     )
 
-    # Add matched column safely
     merged_df["Matched Name"] = merged_df.get("NAME", None)
 
-    # Columns to show (safe selection)
     desired_columns = [
         "Provider Name",
         "Matched Name",
@@ -160,34 +151,26 @@ def main():
         "STATUS"
     ]
 
-    available_columns = [
-        col for col in desired_columns if col in merged_df.columns
-    ]
-
-    result_df = merged_df[available_columns]
+    result_df = merged_df[[col for col in desired_columns if col in merged_df.columns]]
 
     # -----------------------------
-    # DISPLAY RESULTS
+    # DISPLAY
     # -----------------------------
     st.success("✅ Matching Complete")
     st.dataframe(result_df, use_container_width=True)
 
     # -----------------------------
-    # DOWNLOAD BUTTON
+    # DOWNLOAD
     # -----------------------------
     output = BytesIO()
     result_df.to_excel(output, index=False, engine="openpyxl")
     output.seek(0)
 
     st.download_button(
-        label="📥 Download Results as Excel",
+        label="📥 Download Results",
         data=output,
         file_name="odpc_provider_results.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-
-    st.caption(
-        "ℹ️ Matching is exact but case-insensitive based on your selection."
     )
 
 
