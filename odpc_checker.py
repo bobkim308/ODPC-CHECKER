@@ -15,14 +15,28 @@ st.set_page_config(
 # ---------------------------------------------------
 # SCRAPER FUNCTION
 # ---------------------------------------------------
-@st.cache_data(ttl=3600)  # Cache for 1 hour
+@st.cache_data(ttl=3600)
 def scrape_odpc_data():
     url = "https://www.odpc.go.ke/registered-data-handlers/"
 
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept-Language": "en-US,en;q=0.9"
+    }
+
     try:
-        response = requests.get(url, timeout=15)
+        session = requests.Session()
+        response = session.get(url, headers=headers, timeout=15)
         response.raise_for_status()
 
+        # Try pandas first (more robust)
+        try:
+            tables = pd.read_html(response.text)
+            return tables[0]
+        except:
+            pass
+
+        # Fallback to BeautifulSoup
         soup = BeautifulSoup(response.content, "html.parser")
         table = soup.find("table")
 
@@ -36,7 +50,6 @@ def scrape_odpc_data():
             cells = tr.find_all("td")
             if len(cells) != len(headers):
                 continue
-
             row = {headers[i]: cells[i].text.strip() for i in range(len(headers))}
             rows.append(row)
 
