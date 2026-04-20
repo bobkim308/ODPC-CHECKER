@@ -143,7 +143,7 @@ def main():
         "TYPE",
         "REGISTRATION NUMBER",
         "COUNTY",
-        "KENYA",
+        "COUNTRY",
         "STATUS"
     ]
 
