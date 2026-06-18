@@ -115,7 +115,7 @@ def main():
         st.error("⚠️ Could not retrieve ODPC data. Website structure may have changed.")
         return
 
-    odpc_df.columns = odpc_df.columns.str.strip()
+    odpc_df.columns = odpc_df.columns.str.strip()str.upper()
 
     if "NAME" not in odpc_df.columns:
         st.error("❌ 'NAME' column missing from ODPC data")
@@ -143,7 +143,7 @@ def main():
 
     desired_columns = [
         "Provider Name",
-        "Name",
+        "Matched Name",
         "DATA HANDLER TYPE",
         "REGISTRATION NUMBER",
         "COUNTY",
