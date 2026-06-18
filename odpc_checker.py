@@ -144,7 +144,7 @@ def main():
     desired_columns = [
         "Provider Name",
         "Matched Name",
-        "TYPE",
+        "DATA HANDLER TYPE",
         "REGISTRATION NUMBER",
         "COUNTY",
         "COUNTRY",
